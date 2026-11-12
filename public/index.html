@@ -26,7 +26,11 @@
   [hidden] { display: none !important; }
   html, body { height: 100%; margin: 0; background: #120c07; overflow: hidden; touch-action: manipulation; }
   body { font-family: var(--body); color: var(--cream); -webkit-user-select: none; user-select: none; }
-  #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  /* The recorded frame is exactly 9:16 (1080x1920, Instagram Reels). Controls live in the bar under it and are never recorded. */
+  #app { position: fixed; inset: 0; display: flex; flex-direction: column; box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px); padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)); background: #000; }
+  #stageWrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  #stage { display: block; }
   video { display: none; }
 
   .panel {
@@ -67,11 +71,10 @@
   .small { font-size: 13px; color: #b89a70; }
   .panel .small { color: #6f6750; }
 
-  .hud {
-    position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; align-items: center;
-    padding: 0 max(18px, env(safe-area-inset-right)) max(22px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
-    pointer-events: none;
-  }
+  .hud { flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 8px max(18px, env(safe-area-inset-right, 0px)) 0 max(18px, env(safe-area-inset-left, 0px)); }
+  .hint { min-height: 20px; font: 800 14px var(--body); color: #fff3c4; text-align: center; }
+  .buttons { width: 100%; max-width: 420px; display: flex; justify-content: space-between; align-items: center; }
   .fab {
     pointer-events: auto; width: 54px; height: 54px; border-radius: 50%; border: 3px solid rgba(255,255,255,.9);
     background: rgba(0,0,0,.35); color: #fff; font: 900 13px var(--body); cursor: pointer; display: grid; place-items: center;
@@ -90,7 +93,17 @@
 </style>
 </head>
 <body>
-<canvas id="stage"></canvas>
+<main id="app">
+  <div id="stageWrap"><canvas id="stage" width="1080" height="1920"></canvas></div>
+  <div class="hud" id="hud" hidden>
+    <div class="hint" id="hint" aria-live="polite"></div>
+    <div class="buttons">
+      <button class="fab" id="backBtn" aria-label="Menu">MENU</button>
+      <button class="fab rec" id="recBtn" aria-label="Record video"></button>
+      <button class="fab" id="flipBtn" aria-label="Switch camera">PALTO</button>
+    </div>
+  </div>
+</main>
 <video id="cam" playsinline muted autoplay></video>
 
 <section class="panel" id="start">
@@ -113,11 +126,6 @@
   </div>
 </section>
 
-<div class="hud" id="hud" hidden>
-  <button class="fab" id="backBtn" aria-label="Menu">MENU</button>
-  <button class="fab rec" id="recBtn" aria-label="Record video"></button>
-  <button class="fab" id="flipBtn" aria-label="Switch camera">PALTO</button>
-</div>
 <div class="timer" id="timer" hidden>● 0:00</div>
 
 <section class="sheet" id="sheet" hidden>
@@ -192,7 +200,7 @@ let vegKey = "lauki", mode = "mouth", sprite = null;
 const game = { L: 0, pieces: 0, falling: [], state: "ready", knifeT: 0, knifeDir: 1, chopAnim: 0, endAt: 0, flash: 0, msg: "" };
 let face = { x: 0.5, y: 0.45, w: 0.4, found: false }, faceS = null;
 let landmarker = null, lastVideoTime = -1, mouthWasOpen = false, lastChop = 0, jaw = 0;
-let facing = "user", stream = null, W = 0, H = 0, dpr = 1;
+let facing = "user", stream = null;
 
 function resetGame() {
   sprite = buildSprite(VEG[vegKey]);
@@ -205,13 +213,28 @@ $("modeChips").querySelectorAll(".chip").forEach((b) => b.onclick = () => {
 });
 
 /* ---------- audio: sfx go to speakers and into the recording ---------- */
-let actx = null, recDest = null, sfxOut = null;
-function initAudio() {
-  actx = new (window.AudioContext || window.webkitAudioContext)();
+// Audio must be started inside a tap, or it reports "running" but feeds the recorder nothing. On iPhone an
+// AudioContext opened before the mic can also run at the wrong rate once the mic starts, and the recorded sound
+// drifts from the picture. So: start it in the Start tap, then rebuild it once in the first Record tap after the
+// mic is open, at the mic's own rate.
+let actx = null, recDest = null, sfxOut = null, micDelay = null, audioAfterMic = false;
+function initAudio(rate) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  try { actx = rate ? new AC({ sampleRate: rate }) : new AC(); }
+  catch { actx = new AC(); }
   recDest = actx.createMediaStreamDestination();
   sfxOut = actx.createGain(); sfxOut.gain.value = 0.8;
   sfxOut.connect(actx.destination); sfxOut.connect(recDest);
+  connectMic();
 }
+function rebuildAudioForMic() {
+  const rate = micStream?.getAudioTracks()[0]?.getSettings?.().sampleRate;
+  try { actx?.close(); } catch {}
+  actx = null; micNode = null; micDelay = null;
+  initAudio(rate); audioAfterMic = true;
+}
+const wakeAudio = () => { if (actx && actx.state !== "running") actx.resume().catch(() => {}); };
+addEventListener("pointerdown", wakeAudio, true);
 function noiseBurst(dur, freq, q, vol) {
   if (!actx) return;
   const len = Math.floor(actx.sampleRate * dur), buf = actx.createBuffer(1, len, actx.sampleRate), d = buf.getChannelData(0);
@@ -242,13 +265,38 @@ async function startCamera() {
   cam.srcObject = stream;
   await cam.play().catch(() => {});
   if (!micStream) attachMic(); // mic is optional: the game works without it, recordings just have no voice
+  watchCameraLag();
 }
 let micNode = null, micStream = null;
 function attachMic() {
   navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).then((s) => {
-    micStream = s;
-    if (actx) { micNode = actx.createMediaStreamSource(s); micNode.connect(recDest); }
+    micStream = s; connectMic();
   }).catch(() => {});
+}
+// The camera picture reaches the canvas later than the voice reaches the mic, so the voice is delayed by that lag.
+// The lag is measured from the camera's frame timestamps where the browser gives them, else 0.1 s.
+let camLag = 0.1;
+const lagSamples = [];
+function connectMic() {
+  if (!actx || !micStream || micNode) return;
+  micNode = actx.createMediaStreamSource(micStream);
+  micDelay = actx.createDelay(1); micDelay.delayTime.value = camLag;
+  micNode.connect(micDelay); micDelay.connect(recDest);
+}
+function watchCameraLag() {
+  if (!cam.requestVideoFrameCallback || watchCameraLag.on) return;
+  watchCameraLag.on = true;
+  const onFrame = (now, md) => {
+    if (md.captureTime) {
+      lagSamples.push((md.expectedDisplayTime || now) - md.captureTime + 1000 / 60); // + one canvas frame
+      if (lagSamples.length > 60) lagSamples.shift();
+      const sorted = [...lagSamples].sort((a, b) => a - b), med = sorted[sorted.length >> 1] / 1000;
+      camLag = Math.min(0.3, Math.max(0.02, med));
+      if (micDelay) micDelay.delayTime.setTargetAtTime(camLag, actx.currentTime, 0.5);
+    }
+    cam.requestVideoFrameCallback(onFrame);
+  };
+  cam.requestVideoFrameCallback(onFrame);
 }
 
 async function loadModel() {
@@ -259,8 +307,8 @@ async function loadModel() {
 }
 
 $("go").onclick = async () => {
+  if (!actx) { try { initAudio(); actx.resume(); } catch {} }
   $("go").disabled = true; $("startNote").textContent = "Camera shuru ho raha hai…";
-  try { initAudio(); await actx.resume(); } catch {}
   try { await startCamera(); }
   catch (e) { $("startNote").textContent = "Camera band hai. Browser settings mein camera allow karke reload karo. Tap se bina chehre ke bhi khel sakte ho."; mode = "tap"; }
   $("start").hidden = true; $("hud").hidden = false;
@@ -272,18 +320,29 @@ $("backBtn").onclick = (e) => { e.stopPropagation(); $("start").hidden = false; 
 $("flipBtn").onclick = async (e) => { e.stopPropagation(); facing = facing === "user" ? "environment" : "user"; try { await startCamera(); } catch {} };
 
 /* ---------- input ---------- */
-canvas.addEventListener("pointerdown", () => {
+$("app").addEventListener("pointerdown", (e) => {
+  if (e.target.closest("button")) return; // menu, record and flip are not chops
   if (game.state === "play") chop();
   else if (game.state === "over" && performance.now() - game.endAt > 700) resetGame();
 });
 addEventListener("keydown", (e) => { if (e.code === "Space") { e.preventDefault(); if (game.state === "play") chop(); else if (game.state === "over") resetGame(); } });
 
 /* ---------- geometry ---------- */
-function resize() {
-  dpr = Math.min(2, devicePixelRatio || 1); W = innerWidth; H = innerHeight;
-  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+// Drawing happens in a 540x960 logical frame, rendered at 2x = 1080x1920.
+const W = 540, H = 960, SCALE = 2;
+// Instagram Reels UI zones from the QC playbook (Z1, 1080x1920): keep the game inside SAFE.
+const SAFE = { top: 205 / 1920 * H, bottom: 1544 / 1920 * H, left: 52 / 1080 * W, right: 1027 / 1080 * W,
+  rail: 895 / 1080 * W, railTop: 869 / 1920 * H, railBottom: 1415 / 1920 * H }; // right action rail
+const KNIFE_SCALE = 0.52, KNIFE_LEN = 290 * KNIFE_SCALE;
+const KNIFE_TIP = SAFE.bottom - 6 - KNIFE_LEN;      // the whole knife ends above the caption zone
+const LAUKI_MAX_BOTTOM = KNIFE_TIP - H * 0.035;
+const TEXT_S = 34, TITLE_Y = SAFE.top + TEXT_S * 1.6, COUNT_Y = TITLE_Y + TEXT_S * 2.45;
+const RESULT_X = (SAFE.left + SAFE.rail) / 2, RESULT_Y = H * 0.66; // clear of the face and of the right rail
+function fitStage() {
+  const r = $("stageWrap").getBoundingClientRect(), w = Math.min(r.width, r.height * 9 / 16);
+  canvas.style.width = `${w}px`; canvas.style.height = `${w * 16 / 9}px`;
 }
-addEventListener("resize", resize); resize();
+addEventListener("resize", fitStage); fitStage();
 
 function videoRect() { // cover-fit the camera into the canvas
   const vw = cam.videoWidth || 720, vh = cam.videoHeight || 1280, s = Math.max(W / vw, H / vh);
@@ -292,16 +351,17 @@ function videoRect() { // cover-fit the camera into the canvas
 const mirrored = () => facing === "user";
 
 // The lauki hangs just under the chin so the actor's face stays clear; f.y is the chin, f.fh the face height.
+// It stays inside the Reels safe zone: left of the action rail and above the knife.
 function vegBox() {
-  const f = faceS || { x: W / 2, y: H * 0.5, w: W * 0.45, fh: W * 0.55 };
-  const len = Math.min(W * 0.82, Math.max(W * 0.55, f.w * 1.9));
+  const f = faceS || { x: W / 2, y: H * 0.4, w: W * 0.4, fh: W * 0.5 };
+  const span = SAFE.rail - SAFE.left - 8;
+  const len = Math.min(span * 0.78, Math.max(W * 0.45, f.w * 1.8)); // shorter than the knife's path, so a chop can miss
   const v = VEG[vegKey], h = len * v.aspect;
-  const x = Math.min(W * 0.97 - len, Math.max(W * 0.03, f.x - len / 2)); // keep the whole vegetable on screen
-  const y = Math.min(H * 0.8 - h, f.y + f.fh * 0.08); // never pushed off the bottom
+  const x = Math.min(SAFE.rail - 4 - len, Math.max(SAFE.left + 4, f.x - len / 2));
+  const y = Math.min(LAUKI_MAX_BOTTOM - h, f.y + f.fh * 0.08);
   return { x, y, len, h };
 }
-const KNIFE_Y = (b) => Math.min(H * 0.86, Math.max(H * 0.72, b.y + b.h + H * 0.07)); // always below the lauki
-const knifeX = () => W * (0.06 + 0.88 * game.knifeT);
+const knifeX = () => SAFE.left + 12 + (SAFE.rail - SAFE.left - 24) * game.knifeT;
 
 /* ---------- the chop ---------- */
 function chop() {
@@ -340,7 +400,7 @@ function drawSegment(a, b, x, y, len, h, leftCut, rightCut) {
 }
 
 function drawKnife(x, yTip, scale) {
-  const bladeH = 170 * scale, handleH = 120 * scale, w = 30 * scale;
+  const bladeH = 170 * scale, handleH = 120 * scale, w = 40 * scale;
   ctx.save(); ctx.translate(x, yTip);
   ctx.beginPath(); // blade, tip up, sharp edge on the left
   ctx.moveTo(-w / 2, bladeH); ctx.lineTo(-w / 2, 22 * scale); ctx.quadraticCurveTo(-w / 2, 0, w * 0.1, 0); ctx.lineTo(w / 2, bladeH); ctx.closePath();
@@ -381,10 +441,11 @@ function outlined(text, x, y, size, fill = "#fff") {
 }
 
 /* ---------- main loop ---------- */
-let last = performance.now();
+let last = performance.now(), frameNo = 0, detectMs = 0, hintText = null;
+function setHint(t) { if (t !== hintText) { hintText = t; $("hint").textContent = t; } }
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
 
   // camera
   const vr = videoRect();
@@ -398,9 +459,12 @@ function frame(now) {
   }
 
   // face tracking
-  if (landmarker && cam.readyState >= 2 && cam.currentTime !== lastVideoTime) {
+  frameNo++;
+  if (landmarker && cam.readyState >= 2 && cam.currentTime !== lastVideoTime && (detectMs < 22 || frameNo % 2 === 0)) {
     lastVideoTime = cam.currentTime;
+    const t0 = performance.now();
     const res = landmarker.detectForVideo(cam, now);
+    detectMs = detectMs * 0.9 + (performance.now() - t0) * 0.1;
     const lm = res.faceLandmarks?.[0];
     if (lm) {
       const toX = (nx) => { const x = vr.ox + nx * vr.dw; return mirrored() ? W - x : x; };
@@ -432,7 +496,7 @@ function frame(now) {
 
     // dashed guide
     ctx.save(); ctx.setLineDash([9, 8]); ctx.lineWidth = 2.5; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.shadowColor = "rgba(0,0,0,.4)"; ctx.shadowBlur = 3;
-    ctx.beginPath(); ctx.moveTo(kx, Math.max(H * 0.17, b.y - b.h * 0.6)); ctx.lineTo(kx, KNIFE_Y(b)); ctx.stroke(); ctx.restore(); // starts just above the lauki, not across the face
+    ctx.beginPath(); ctx.moveTo(kx, Math.max(COUNT_Y + 24, b.y - b.h * 0.6)); ctx.lineTo(kx, KNIFE_TIP); ctx.stroke(); ctx.restore(); // starts just above the lauki, not across the face
 
     // remaining vegetable
     if (game.L < 1) drawSegment(game.L, 1, b.x, b.y, b.len, b.h, game.L > 0, false);
@@ -446,33 +510,36 @@ function frame(now) {
       ctx.restore();
     }
     game.falling = game.falling.filter((p) => p.y < H + 200);
-
-    // knife: jabs up to the vegetable on a chop
     game.chopAnim = Math.max(0, game.chopAnim - dt * 4.5);
     const jab = Math.sin(game.chopAnim * Math.PI);
-    const restY = KNIFE_Y(b), hitY = b.y - b.h * 0.25;
-    const scale = Math.max(0.6, Math.min(1.1, W / 430));
-    drawKnife(kx, restY + (hitY - restY) * jab, scale);
 
-    // HUD drawn on canvas so it is in the recording
-    const s = Math.max(22, Math.min(34, W * 0.075));
-    pill(`${v.name} KE ${PIECES_TO_WIN}\nTUKDE KARO`, W / 2, H * 0.09 + 6, s);
-    outlined(`Tukde: ${game.pieces}/${PIECES_TO_WIN}`, W / 2, H * 0.09 + s * 2.45, s * 0.78);
-    if (game.flash > 0) { game.flash = Math.max(0, game.flash - dt * 3); outlined("KHACH!", kx, b.y + b.h * 1.6, s * (1 + game.flash * 0.4), `rgba(255,214,90,${game.flash})`); }
-    if (game.msg && game.state === "play") outlined(game.msg, W / 2, H * 0.93, 15);
-    if (game.state === "play" && mode === "mouth" && !faceS) outlined("Camera mein chehra dikhao", W / 2, H * 0.62, 18);
-    // face too close: no room under the chin, so the lauki is pushed up over the face
-    if (game.state === "play" && faceS && faceS.y + faceS.fh * 0.08 > b.y + 2) outlined("Thoda peeche ho jao", W / 2, H * 0.09 + s * 3.4, s * 0.62, "#fff3c4");
+    // knife: jabs up to the vegetable on a chop
+    const hitY = b.y - b.h * 0.25;
+    if (game.state === "play") drawKnife(kx, KNIFE_TIP + (hitY - KNIFE_TIP) * jab, KNIFE_SCALE);
+
+    // game text is drawn on the canvas so it is in the recording; hints go in the bar below and are not
+    const s = TEXT_S;
+    pill(`${v.name} KE ${PIECES_TO_WIN}\nTUKDE KARO`, W / 2, TITLE_Y, s);
+    outlined(`Tukde: ${game.pieces}/${PIECES_TO_WIN}`, W / 2, COUNT_Y, s * 0.78);
+    if (game.flash > 0) {
+      game.flash = Math.max(0, game.flash - dt * 3);
+      const fx = Math.min(SAFE.rail - 70, Math.max(SAFE.left + 70, kx));
+      outlined("KHACH!", fx, b.y + b.h / 2, s * (1 + game.flash * 0.4), `rgba(255,214,90,${game.flash})`);
+    }
 
     if (game.state === "over") {
-      const RY = H * 0.64; // lower third, clear of the face
       const t = Math.min(1, (now - game.endAt) / 250), sc = 0.6 + 0.4 * (1 - Math.pow(1 - t, 3));
-      ctx.save(); ctx.translate(W / 2, RY); ctx.scale(sc, sc); ctx.translate(-W / 2, -RY);
-      pill(game.won ? "JEET GAYE!" : "CHOOK GAYE!", W / 2, RY, s * 1.4, game.won ? "#9df07a" : "#ff6a4d", "rgba(255,248,232,.85)");
+      ctx.save(); ctx.translate(RESULT_X, RESULT_Y); ctx.scale(sc, sc); ctx.translate(-RESULT_X, -RESULT_Y);
+      pill(game.won ? "JEET GAYE!" : "CHOOK GAYE!", RESULT_X, RESULT_Y, s * 1.4, game.won ? "#9df07a" : "#ff6a4d", "rgba(255,248,232,.85)");
       ctx.restore();
-      outlined(game.won ? "Pradhan ji khush hue!" : "Arre Sachiv ji, yeh kya kiya!", W / 2, RY + s * 2.1, s * 0.72, game.won ? "#fff3c4" : "#ffd9cf");
-      if (now - game.endAt > 700) outlined(mode === "mouth" ? "Phir se khelne ke liye muh kholo ya tap karo" : "Phir se khelne ke liye tap karo", W / 2, RY + s * 3.0, 16);
+      outlined(game.won ? "Pradhan ji khush hue!" : "Arre Sachiv ji, yeh kya kiya!", RESULT_X, RESULT_Y + s * 2.1, s * 0.72, game.won ? "#fff3c4" : "#ffd9cf");
     }
+
+    if (game.state === "over") setHint(now - game.endAt > 700 ? (mode === "mouth" ? "Phir se khelne ke liye muh kholo ya tap karo" : "Phir se khelne ke liye tap karo") : "");
+    else if (game.msg) setHint(game.msg);
+    else if (mode === "mouth" && !faceS) setHint("Camera mein chehra dikhao");
+    else if (faceS && faceS.y + faceS.fh * 0.08 > b.y + 2) setHint("Thoda peeche ho jao, lauki ke liye jagah chahiye");
+    else setHint("");
   }
   requestAnimationFrame(frame);
 }
@@ -484,13 +551,15 @@ function pickType() {
   const types = ["video/mp4;codecs=avc1,mp4a", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm"];
   return types.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
 }
-$("recBtn").onclick = (e) => {
+$("recBtn").onclick = async (e) => {
   e.stopPropagation();
   if (rec && rec.state === "recording") { rec.stop(); return; }
+  if (!actx || (micStream && !audioAfterMic)) rebuildAudioForMic(); // synchronously, while still inside the tap
+  actx.resume().catch(() => {});
   const tracks = [...canvas.captureStream(30).getVideoTracks()];
   if (recDest) tracks.push(...recDest.stream.getAudioTracks());
   const type = pickType();
-  try { rec = new MediaRecorder(new MediaStream(tracks), type ? { mimeType: type, videoBitsPerSecond: 8_000_000 } : undefined); }
+  try { rec = new MediaRecorder(new MediaStream(tracks), type ? { mimeType: type, videoBitsPerSecond: 10_000_000, audioBitsPerSecond: 128_000 } : undefined); }
   catch { return; }
   lastExt = (rec.mimeType || type).includes("mp4") ? "mp4" : "webm";
   chunks = []; rec.ondataavailable = (ev) => ev.data.size && chunks.push(ev.data);
@@ -500,7 +569,7 @@ $("recBtn").onclick = (e) => {
     $("preview").src = URL.createObjectURL(lastBlob); $("sheet").hidden = false; $("saveNote").textContent = "";
     $("preview").play().catch(() => {});
   };
-  rec.start(500); recStart = Date.now(); $("recBtn").classList.add("on"); $("timer").hidden = false;
+  rec.start(); recStart = Date.now(); $("recBtn").classList.add("on"); $("timer").hidden = false;
   recTimer = setInterval(() => { const s = Math.floor((Date.now() - recStart) / 1000); $("timer").textContent = `● ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }, 250);
 };
 $("saveBtn").onclick = async () => {
