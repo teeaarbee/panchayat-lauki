@@ -31,7 +31,7 @@
 
   .panel {
     position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 18px; text-align: center;
+    gap: 24px; text-align: center;
     padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
     background: /* lime-washed panchayat office wall */
       radial-gradient(40% 30% at 15% 85%, rgba(150,120,70,.18), transparent 70%),
@@ -51,6 +51,7 @@
   .panel p { margin: 0; max-width: 32ch; line-height: 1.45; color: #3b382b; font-size: 16px; font-weight: 700; }
   .panel p b { color: var(--board); }
   .label { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: #7a7158; font-weight: 900; }
+  .group { display: flex; flex-direction: column; align-items: center; gap: 10px; }
   .chips { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 420px; }
   .chip {
     font: 900 16px var(--body); color: var(--ink); background: var(--cream); border: 3px solid var(--ink);
@@ -99,13 +100,17 @@
     <div class="tag">5 tukde · 1 chaaku · 0 galti</div>
   </div>
   <p>Chaaku idhar-udhar chalega. Jab woh <b>lauki</b> ke upar ho, tab kaato. <b>5 tukde</b> kiye toh jeet. Ek baar bhi chooke toh haar.</p>
-  <div class="label">Kaise kaatna hai</div>
-  <div class="chips" id="modeChips">
-    <button class="chip" data-mode="mouth" aria-pressed="true">Muh kholo ya tap</button>
-    <button class="chip" data-mode="tap" aria-pressed="false">Sirf tap</button>
+  <div class="group">
+    <div class="label">Kaise kaatna hai</div>
+    <div class="chips" id="modeChips">
+      <button class="chip" data-mode="mouth" aria-pressed="true">Muh kholo ya tap</button>
+      <button class="chip" data-mode="tap" aria-pressed="false">Sirf tap</button>
+    </div>
   </div>
-  <button class="btn" id="go">CAMERA SHURU KARO</button>
-  <div class="small" id="startNote">Front camera chalega. Kuch bhi upload nahi hota.</div>
+  <div class="group">
+    <button class="btn" id="go">CAMERA SHURU KARO</button>
+    <div class="small" id="startNote">Front camera chalega. Kuch bhi upload nahi hota.</div>
+  </div>
 </section>
 
 <div class="hud" id="hud" hidden>
@@ -350,22 +355,27 @@ function drawKnife(x, yTip, scale) {
 
 function pill(text, cx, cy, size, fill = "#ffcf5a", bg = "rgba(255,248,232,.78)") {
   ctx.font = `${size}px "Lilita One", system-ui`;
+  if ("wordSpacing" in ctx) ctx.wordSpacing = `${size * 0.12}px`;
   const lines = text.split("\n"), lw = Math.max(...lines.map((l) => ctx.measureText(l).width)), lh = size * 1.1;
   const bw = lw + size * 1.4, bh = lh * lines.length + size * 0.8;
   ctx.fillStyle = bg; ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.lineWidth = size * 0.12;
   ctx.beginPath(); ctx.roundRect(cx - bw / 2, cy - bh / 2, bw, bh, size * 0.7); ctx.fill(); ctx.stroke();
   ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+  if ("wordSpacing" in ctx) ctx.wordSpacing = `${size * 0.12}px`;
   lines.forEach((l, i) => {
     const y = cy - (lines.length - 1) * lh / 2 + i * lh;
     ctx.lineWidth = size * 0.2; ctx.strokeStyle = "#3b2208"; ctx.strokeText(l, cx, y);
     ctx.fillStyle = fill; ctx.fillText(l, cx, y);
   });
+  if ("wordSpacing" in ctx) ctx.wordSpacing = "0px";
   return { bw, bh };
 }
 
 function outlined(text, x, y, size, fill = "#fff") {
   ctx.font = `${size}px "Lilita One", system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
-  ctx.lineWidth = size * 0.22; ctx.strokeStyle = "rgba(0,0,0,.85)"; ctx.strokeText(text, x, y); ctx.fillStyle = fill; ctx.fillText(text, x, y);
+  if ("wordSpacing" in ctx) ctx.wordSpacing = `${size * 0.14}px`; // the thick outline eats the gaps between words
+  ctx.lineWidth = size * 0.18; ctx.strokeStyle = "rgba(0,0,0,.85)"; ctx.strokeText(text, x, y); ctx.fillStyle = fill; ctx.fillText(text, x, y);
+  if ("wordSpacing" in ctx) ctx.wordSpacing = "0px";
 }
 
 /* ---------- main loop ---------- */
@@ -444,7 +454,7 @@ function frame(now) {
     // HUD drawn on canvas so it is in the recording
     const s = Math.max(22, Math.min(34, W * 0.075));
     pill(`${v.name} KE ${PIECES_TO_WIN}\nTUKDE KARO`, W / 2, H * 0.09 + 6, s);
-    outlined(`Tukde: ${game.pieces}/${PIECES_TO_WIN}`, W / 2, H * 0.09 + s * 2.2, s * 0.78);
+    outlined(`Tukde: ${game.pieces}/${PIECES_TO_WIN}`, W / 2, H * 0.09 + s * 2.45, s * 0.78);
     if (game.flash > 0) { game.flash = Math.max(0, game.flash - dt * 3); outlined("KHACH!", kx, b.y - b.h * 0.9, s * (1 + game.flash * 0.4), `rgba(255,214,90,${game.flash})`); }
     if (game.msg && game.state === "play") outlined(game.msg, W / 2, H * 0.93, 15);
     if (game.state === "play" && mode === "mouth" && !faceS) outlined("Camera mein chehra dikhao", W / 2, H * 0.62, 18);
@@ -454,8 +464,8 @@ function frame(now) {
       ctx.save(); ctx.translate(W / 2, H * 0.5); ctx.scale(sc, sc); ctx.translate(-W / 2, -H * 0.5);
       pill(game.won ? "JEET GAYE!" : "CHOOK GAYE!", W / 2, H * 0.5, s * 1.4, game.won ? "#9df07a" : "#ff6a4d", "rgba(255,248,232,.85)");
       ctx.restore();
-      outlined(game.won ? "Pradhan ji khush hue!" : "Arre Sachiv ji, yeh kya kiya!", W / 2, H * 0.5 + s * 1.75, s * 0.72, game.won ? "#fff3c4" : "#ffd9cf");
-      if (now - game.endAt > 700) outlined(mode === "mouth" ? "Phir se khelne ke liye muh kholo ya tap karo" : "Phir se khelne ke liye tap karo", W / 2, H * 0.5 + s * 2.9, 16);
+      outlined(game.won ? "Pradhan ji khush hue!" : "Arre Sachiv ji, yeh kya kiya!", W / 2, H * 0.5 + s * 2.1, s * 0.72, game.won ? "#fff3c4" : "#ffd9cf");
+      if (now - game.endAt > 700) outlined(mode === "mouth" ? "Phir se khelne ke liye muh kholo ya tap karo" : "Phir se khelne ke liye tap karo", W / 2, H * 0.5 + s * 3.0, 16);
     }
   }
   requestAnimationFrame(frame);
