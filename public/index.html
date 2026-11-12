@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Panchayat Lauki</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@700;900&display=swap">
+<style>
+  /* One full-screen camera canvas; DOM controls float on top and are never recorded. */
+  :root {
+    --ink: #2b1a0e;
+    --cream: #fff4dc;
+    --mustard: #f2b632;
+    --chili: #e5462f;
+    --leaf: #3f9b3a;
+    --glass: rgba(255, 248, 232, .82);
+    --display: "Lilita One", "Arial Rounded MT Bold", system-ui, sans-serif;
+    --body: "Nunito", system-ui, -apple-system, sans-serif;
+    --board: #1d5b3a;
+    --board-dark: #123d27;
+    --paint: #f6c945;
+    --wall: #efe9d6;
+    color-scheme: dark;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; background: #120c07; overflow: hidden; touch-action: manipulation; }
+  body { font-family: var(--body); color: var(--cream); -webkit-user-select: none; user-select: none; }
+  #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  video { display: none; }
+
+  .panel {
+    position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; text-align: center;
+    padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+    background: /* lime-washed panchayat office wall */
+      radial-gradient(40% 30% at 15% 85%, rgba(150,120,70,.18), transparent 70%),
+      radial-gradient(30% 25% at 90% 20%, rgba(120,140,110,.16), transparent 70%),
+      radial-gradient(55% 40% at 60% 100%, rgba(90,70,40,.20), transparent 70%),
+      var(--wall);
+    color: var(--ink); overflow-y: auto;
+  }
+  .board {
+    background: var(--board); border-radius: 10px; padding: 14px 18px 16px; width: min(100%, 330px); box-sizing: border-box;
+    box-shadow: inset 0 0 0 4px var(--board), inset 0 0 0 7px var(--paint), 0 10px 24px rgba(30,40,20,.35);
+    transform: rotate(-1.2deg);
+  }
+  .board .office { font: 900 13px var(--body); letter-spacing: .26em; color: #fff; text-transform: uppercase; }
+  .board h1 { font-family: var(--display); font-weight: 400; font-size: clamp(44px, 13vw, 64px); line-height: 1; margin: 6px 0 4px; color: var(--paint); text-shadow: 0 3px 0 var(--board-dark); letter-spacing: .01em; }
+  .board .tag { font: 700 14px var(--body); color: #dfe9d8; }
+  .panel p { margin: 0; max-width: 32ch; line-height: 1.45; color: #3b382b; font-size: 16px; font-weight: 700; }
+  .panel p b { color: var(--board); }
+  .label { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: #7a7158; font-weight: 900; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 420px; }
+  .chip {
+    font: 900 16px var(--body); color: var(--ink); background: var(--cream); border: 3px solid var(--ink);
+    border-radius: 999px; padding: 9px 16px; cursor: pointer; box-shadow: 0 3px 0 var(--ink);
+  }
+  .chip[aria-pressed="true"] { background: var(--paint); }
+  .chip:focus-visible, .btn:focus-visible, .fab:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+  .btn {
+    font: 400 26px var(--display); color: var(--cream); background: var(--chili); border: 3px solid var(--ink);
+    border-radius: 18px; padding: 14px 34px; cursor: pointer; box-shadow: 0 5px 0 var(--ink); letter-spacing: .03em;
+  }
+  .btn:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink); }
+  .small { font-size: 13px; color: #b89a70; }
+  .panel .small { color: #6f6750; }
+
+  .hud {
+    position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; align-items: center;
+    padding: 0 max(18px, env(safe-area-inset-right)) max(22px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+    pointer-events: none;
+  }
+  .fab {
+    pointer-events: auto; width: 54px; height: 54px; border-radius: 50%; border: 3px solid rgba(255,255,255,.9);
+    background: rgba(0,0,0,.35); color: #fff; font: 900 13px var(--body); cursor: pointer; display: grid; place-items: center;
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  }
+  .rec { width: 74px; height: 74px; border-width: 5px; background: transparent; }
+  .rec::after { content: ""; width: 54px; height: 54px; border-radius: 50%; background: var(--chili); transition: all .2s; }
+  .rec.on::after { width: 28px; height: 28px; border-radius: 7px; }
+  .timer { position: fixed; top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); background: var(--chili); color: #fff; font: 900 14px var(--body); padding: 4px 10px; border-radius: 99px; font-variant-numeric: tabular-nums; }
+
+  .sheet { position: fixed; inset: 0; background: rgba(10,6,3,.92); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .sheet video { display: block; max-height: 62vh; max-width: 100%; border-radius: 16px; border: 3px solid var(--cream); background: #000; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  .btn.alt { background: var(--cream); color: var(--ink); }
+  @media (prefers-reduced-motion: reduce) { .rec::after { transition: none; } .board { transform: none; } }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+
+<section class="panel" id="start">
+  <div class="board">
+    <div class="office">Gram Panchayat Phulera</div>
+    <h1>LAUKI KAATO</h1>
+    <div class="tag">5 tukde · 1 chaaku · 0 galti</div>
+  </div>
+  <p>Chaaku idhar-udhar chalega. Jab woh <b>lauki</b> ke upar ho, tab kaato. <b>5 tukde</b> kiye toh jeet. Ek baar bhi chooke toh haar.</p>
+  <div class="label">Kaise kaatna hai</div>
+  <div class="chips" id="modeChips">
+    <button class="chip" data-mode="mouth" aria-pressed="true">Muh kholo ya tap</button>
+    <button class="chip" data-mode="tap" aria-pressed="false">Sirf tap</button>
+  </div>
+  <button class="btn" id="go">CAMERA SHURU KARO</button>
+  <div class="small" id="startNote">Front camera chalega. Kuch bhi upload nahi hota.</div>
+</section>
+
+<div class="hud" id="hud" hidden>
+  <button class="fab" id="backBtn" aria-label="Menu">MENU</button>
+  <button class="fab rec" id="recBtn" aria-label="Record video"></button>
+  <button class="fab" id="flipBtn" aria-label="Switch camera">PALTO</button>
+</div>
+<div class="timer" id="timer" hidden>● 0:00</div>
+
+<section class="sheet" id="sheet" hidden>
+  <video id="preview" playsinline controls loop></video>
+  <div class="row">
+    <button class="btn" id="saveBtn">SAVE / SHARE</button>
+    <button class="btn alt" id="closeBtn">PHIR SE KHELO</button>
+  </div>
+  <div class="small" id="saveNote"></div>
+</section>
+
+<script type="module">
+import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+
+const PIECES_TO_WIN = 5;
+const canvas = document.getElementById("stage");
+const ctx = canvas.getContext("2d");
+const cam = document.getElementById("cam");
+const $ = (id) => document.getElementById(id);
+
+/* ---------- the lauki: a radius profile r(t), t = 0 (left end) .. 1 (right end) ---------- */
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const VEG = {
+  lauki: {
+    name: "LAUKI", hindi: "Lauki", english: "Bottle gourd", aspect: 0.22,
+    r: (t) => (0.62 + 0.38 * (1 - smooth(0.15, 0.9, t))) * Math.sqrt(Math.max(0, 1 - Math.pow((t - 0.5) / 0.5, 8))),
+    skin: ["#dff2a8", "#9fca5c", "#5a8a2c"], stripes: "rgba(240,255,210,.28)", speckle: "rgba(245,255,225,.55)",
+    core: ["#a9d27a", "#f1f5dc", "#fffef4"], seeds: "#e2d7a8", stem: "#6b7f2e",
+  },
+};
+const SPR_W = 1200;
+
+function buildSprite(v) {
+  const H = Math.round(SPR_W * v.aspect), half = H / 2 * 0.86;
+  const c = document.createElement("canvas"); c.width = SPR_W; c.height = H;
+  const g = c.getContext("2d"), cy = H / 2, N = 200;
+  const path = () => {
+    g.beginPath();
+    for (let i = 0; i <= N; i++) { const t = i / N; g.lineTo(t * SPR_W, cy - v.r(t) * half); }
+    for (let i = N; i >= 0; i--) { const t = i / N; g.lineTo(t * SPR_W, cy + v.r(t) * half); }
+    g.closePath();
+  };
+  path();
+  const grad = g.createLinearGradient(0, cy - half, 0, cy + half);
+  grad.addColorStop(0, v.skin[0]); grad.addColorStop(0.45, v.skin[1]); grad.addColorStop(1, v.skin[2]);
+  g.fillStyle = grad; g.fill();
+  g.save(); path(); g.clip();
+  if (v.stripes) {
+    g.strokeStyle = v.stripes; g.lineWidth = 6;
+    for (const k of [-0.5, 0.1, 0.55]) { g.beginPath(); for (let i = 0; i <= N; i++) { const t = i / N; g.lineTo(t * SPR_W, cy + k * v.r(t) * half); } g.stroke(); }
+  }
+  if (v.speckle) {
+    g.fillStyle = v.speckle;
+    for (let i = 0; i < 260; i++) { const t = 0.03 + Math.random() * 0.94, rr = v.r(t) * half; g.beginPath(); g.ellipse(t * SPR_W, cy + (Math.random() * 2 - 1) * rr * 0.9, 3 + Math.random() * 3, 1.6 + Math.random() * 1.5, 0, 0, 7); g.fill(); }
+  }
+  // soft top highlight + bottom shade
+  const hl = g.createLinearGradient(0, cy - half, 0, cy);
+  hl.addColorStop(0, "rgba(255,255,255,0)"); hl.addColorStop(0.35, "rgba(255,255,255,.22)"); hl.addColorStop(0.6, "rgba(255,255,255,0)");
+  g.fillStyle = hl; g.fillRect(0, 0, SPR_W, cy);
+  g.restore();
+  g.lineWidth = 4; g.strokeStyle = "rgba(40,20,5,.55)"; path(); g.stroke();
+  if (v.stem) { // lauki stalk on the narrow right end
+    const rr = v.r(0.97) * half;
+    g.fillStyle = v.stem; g.strokeStyle = "rgba(30,40,10,.7)"; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(SPR_W - 14, cy - rr * 0.35); g.lineTo(SPR_W, cy - rr * 0.22); g.lineTo(SPR_W, cy + rr * 0.18); g.lineTo(SPR_W - 14, cy + rr * 0.35); g.closePath(); g.fill(); g.stroke();
+  }
+  return { c, H, half };
+}
+
+/* ---------- state ---------- */
+let vegKey = "lauki", mode = "mouth", sprite = null;
+const game = { L: 0, pieces: 0, falling: [], state: "ready", knifeT: 0, knifeDir: 1, chopAnim: 0, endAt: 0, flash: 0, msg: "" };
+let face = { x: 0.5, y: 0.45, w: 0.4, found: false }, faceS = null;
+let landmarker = null, lastVideoTime = -1, mouthWasOpen = false, lastChop = 0, jaw = 0;
+let facing = "user", stream = null, W = 0, H = 0, dpr = 1;
+
+function resetGame() {
+  sprite = buildSprite(VEG[vegKey]);
+  Object.assign(game, { L: 0, pieces: 0, falling: [], state: "play", knifeT: 0.05, knifeDir: 1, chopAnim: 0, msg: "" });
+}
+
+/* ---------- chop-mode chips ---------- */
+$("modeChips").querySelectorAll(".chip").forEach((b) => b.onclick = () => {
+  mode = b.dataset.mode; $("modeChips").querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", c === b));
+});
+
+/* ---------- audio: sfx go to speakers and into the recording ---------- */
+let actx = null, recDest = null, sfxOut = null;
+function initAudio() {
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  recDest = actx.createMediaStreamDestination();
+  sfxOut = actx.createGain(); sfxOut.gain.value = 0.8;
+  sfxOut.connect(actx.destination); sfxOut.connect(recDest);
+}
+function noiseBurst(dur, freq, q, vol) {
+  if (!actx) return;
+  const len = Math.floor(actx.sampleRate * dur), buf = actx.createBuffer(1, len, actx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+  const s = actx.createBufferSource(); s.buffer = buf;
+  const f = actx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = freq; f.Q.value = q;
+  const g = actx.createGain(); g.gain.value = vol;
+  s.connect(f); f.connect(g); g.connect(sfxOut); s.start();
+}
+function tone(freqs, step, type = "triangle", vol = 0.25) {
+  if (!actx) return;
+  freqs.forEach((fr, i) => {
+    const o = actx.createOscillator(), g = actx.createGain(), t0 = actx.currentTime + i * step;
+    o.type = type; o.frequency.value = fr; g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.001, t0 + step * 1.8);
+    o.connect(g); g.connect(sfxOut); o.start(t0); o.stop(t0 + step * 2);
+  });
+}
+const sfxChop = () => { noiseBurst(0.12, 2600, 1.2, 1.4); noiseBurst(0.08, 400, 2, 1.0); };
+const sfxWin = () => tone([523, 659, 784, 1047], 0.11);
+const sfxLose = () => tone([392, 330, 262, 196], 0.14, "sawtooth", 0.12);
+
+/* ---------- camera + face model ---------- */
+async function startCamera() {
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
+  });
+  cam.srcObject = stream;
+  await cam.play().catch(() => {});
+  if (!micStream) attachMic(); // mic is optional: the game works without it, recordings just have no voice
+}
+let micNode = null, micStream = null;
+function attachMic() {
+  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }).then((s) => {
+    micStream = s;
+    if (actx) { micNode = actx.createMediaStreamSource(s); micNode.connect(recDest); }
+  }).catch(() => {});
+}
+
+async function loadModel() {
+  const fs = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+  const opts = (delegate) => ({ baseOptions: { modelAssetPath: "face_landmarker.task", delegate }, runningMode: "VIDEO", numFaces: 1, outputFaceBlendshapes: true });
+  try { landmarker = await FaceLandmarker.createFromOptions(fs, opts("GPU")); }
+  catch { landmarker = await FaceLandmarker.createFromOptions(fs, opts("CPU")); }
+}
+
+$("go").onclick = async () => {
+  $("go").disabled = true; $("startNote").textContent = "Camera shuru ho raha hai…";
+  try { initAudio(); await actx.resume(); } catch {}
+  try { await startCamera(); }
+  catch (e) { $("startNote").textContent = "Camera band hai. Browser settings mein camera allow karke reload karo. Tap se bina chehre ke bhi khel sakte ho."; mode = "tap"; }
+  $("start").hidden = true; $("hud").hidden = false;
+  resetGame();
+  try { navigator.wakeLock?.request("screen").catch(() => {}); } catch {}
+  if (!landmarker) loadModel().catch(() => { mode = "tap"; game.msg = "Face tracking nahi chala · tap karke kaato"; });
+};
+$("backBtn").onclick = (e) => { e.stopPropagation(); $("start").hidden = false; $("hud").hidden = true; $("go").disabled = false; $("go").textContent = "PHIR SE KHELO"; $("startNote").textContent = ""; game.state = "ready"; };
+$("flipBtn").onclick = async (e) => { e.stopPropagation(); facing = facing === "user" ? "environment" : "user"; try { await startCamera(); } catch {} };
+
+/* ---------- input ---------- */
+canvas.addEventListener("pointerdown", () => {
+  if (game.state === "play") chop();
+  else if (game.state === "over" && performance.now() - game.endAt > 700) resetGame();
+});
+addEventListener("keydown", (e) => { if (e.code === "Space") { e.preventDefault(); if (game.state === "play") chop(); else if (game.state === "over") resetGame(); } });
+
+/* ---------- geometry ---------- */
+function resize() {
+  dpr = Math.min(2, devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+}
+addEventListener("resize", resize); resize();
+
+function videoRect() { // cover-fit the camera into the canvas
+  const vw = cam.videoWidth || 720, vh = cam.videoHeight || 1280, s = Math.max(W / vw, H / vh);
+  return { s, dw: vw * s, dh: vh * s, ox: (W - vw * s) / 2, oy: (H - vh * s) / 2, vw, vh };
+}
+const mirrored = () => facing === "user";
+
+function vegBox() {
+  const f = faceS || { x: W / 2, y: H * 0.45, w: W * 0.45 };
+  const len = Math.min(W * 0.82, Math.max(W * 0.55, f.w * 1.9));
+  const v = VEG[vegKey], h = len * v.aspect;
+  const x = Math.min(W * 0.97 - len, Math.max(W * 0.03, f.x - len / 2)); // keep the whole vegetable on screen
+  return { x, y: f.y - h / 2, len, h };
+}
+const KNIFE_Y = () => H * 0.72;
+const knifeX = () => W * (0.06 + 0.88 * game.knifeT);
+
+/* ---------- the chop ---------- */
+function chop() {
+  const now = performance.now();
+  if (now - lastChop < 350) return;
+  lastChop = now; game.chopAnim = 1; sfxChop();
+  const b = vegBox(), f = (knifeX() - b.x) / b.len;
+  if (f > game.L + 0.01 && f < 0.995) {
+    game.falling.push({ a: game.L, b: f, x: b.x, y: b.y, len: b.len, h: b.h, vx: -(60 + Math.random() * 80), vy: -260, rot: 0, vr: -(2 + Math.random() * 2) });
+    game.L = f; game.pieces++; game.flash = 1;
+    if (game.pieces >= PIECES_TO_WIN) { game.state = "over"; game.won = true; game.endAt = now; setTimeout(sfxWin, 150); }
+  } else {
+    game.falling.push({ a: game.L, b: 1, x: b.x, y: b.y, len: b.len, h: b.h, vx: 0, vy: -120, rot: 0, vr: 1.2 });
+    game.L = 1; game.state = "over"; game.won = false; game.endAt = now; setTimeout(sfxLose, 120);
+  }
+}
+
+/* ---------- drawing ---------- */
+function drawSegment(a, b, x, y, len, h, leftCut, rightCut) {
+  const v = VEG[vegKey], sw = SPR_W, sh = sprite.H;
+  if (b - a <= 0) return;
+  ctx.drawImage(sprite.c, a * sw, 0, (b - a) * sw, sh, x + a * len, y, (b - a) * len, h);
+  const faceAt = (t, px) => {
+    const ry = v.r(Math.min(1, Math.max(0, t))) * (h / 2) * 0.86, rx = Math.max(3, ry * 0.32);
+    if (ry < 2) return;
+    const cy = y + h / 2, gr = ctx.createRadialGradient(px, cy, 0, px, cy, ry);
+    gr.addColorStop(0, v.core[2]); gr.addColorStop(0.55, v.core[1]); gr.addColorStop(0.9, v.core[0]); gr.addColorStop(1, v.skin[2]);
+    ctx.save(); ctx.translate(px, cy); ctx.scale(rx / ry, 1);
+    ctx.beginPath(); ctx.arc(0, 0, ry, 0, Math.PI * 2); ctx.fillStyle = gr; ctx.fill();
+    if (v.seeds) { ctx.fillStyle = v.seeds; for (let k = 0; k < 10; k++) { const ang = k / 10 * Math.PI * 2; ctx.beginPath(); ctx.ellipse(Math.cos(ang) * ry * 0.45, Math.sin(ang) * ry * 0.45, ry * 0.07, ry * 0.12, ang, 0, 7); ctx.fill(); } }
+    ctx.lineWidth = 2 * ry / rx * 0.5; ctx.strokeStyle = "rgba(40,20,5,.45)"; ctx.stroke();
+    ctx.restore();
+  };
+  if (leftCut) faceAt(a, x + a * len);
+  if (rightCut) faceAt(b, x + b * len);
+}
+
+function drawKnife(x, yTip, scale) {
+  const bladeH = 170 * scale, handleH = 120 * scale, w = 30 * scale;
+  ctx.save(); ctx.translate(x, yTip);
+  ctx.beginPath(); // blade, tip up, sharp edge on the left
+  ctx.moveTo(-w / 2, bladeH); ctx.lineTo(-w / 2, 22 * scale); ctx.quadraticCurveTo(-w / 2, 0, w * 0.1, 0); ctx.lineTo(w / 2, bladeH); ctx.closePath();
+  const bg = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
+  bg.addColorStop(0, "#f4f6f8"); bg.addColorStop(0.45, "#c3c9cf"); bg.addColorStop(1, "#8b939b");
+  ctx.fillStyle = bg; ctx.fill(); ctx.lineWidth = 2.5 * scale; ctx.strokeStyle = "#3a3f44"; ctx.stroke();
+  ctx.strokeStyle = "rgba(60,65,70,.6)"; ctx.lineWidth = 1.5 * scale; // serrations
+  for (let yy = 30 * scale; yy < bladeH - 8; yy += 9 * scale) { ctx.beginPath(); ctx.moveTo(-w / 2, yy); ctx.lineTo(-w / 2 + 5 * scale, yy + 4 * scale); ctx.stroke(); }
+  ctx.fillStyle = "#5c3416"; ctx.strokeStyle = "#2a1406"; ctx.lineWidth = 2.5 * scale; // handle
+  ctx.beginPath(); ctx.roundRect(-w * 0.62, bladeH, w * 1.24, handleH, 10 * scale); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "#d9b98a"; for (const yy of [0.25, 0.5, 0.75]) { ctx.beginPath(); ctx.arc(0, bladeH + handleH * yy, 3.2 * scale, 0, 7); ctx.fill(); }
+  ctx.restore();
+}
+
+function pill(text, cx, cy, size, fill = "#ffcf5a", bg = "rgba(255,248,232,.78)") {
+  ctx.font = `${size}px "Lilita One", system-ui`;
+  const lines = text.split("\n"), lw = Math.max(...lines.map((l) => ctx.measureText(l).width)), lh = size * 1.1;
+  const bw = lw + size * 1.4, bh = lh * lines.length + size * 0.8;
+  ctx.fillStyle = bg; ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.lineWidth = size * 0.12;
+  ctx.beginPath(); ctx.roundRect(cx - bw / 2, cy - bh / 2, bw, bh, size * 0.7); ctx.fill(); ctx.stroke();
+  ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+  lines.forEach((l, i) => {
+    const y = cy - (lines.length - 1) * lh / 2 + i * lh;
+    ctx.lineWidth = size * 0.2; ctx.strokeStyle = "#3b2208"; ctx.strokeText(l, cx, y);
+    ctx.fillStyle = fill; ctx.fillText(l, cx, y);
+  });
+  return { bw, bh };
+}
+
+function outlined(text, x, y, size, fill = "#fff") {
+  ctx.font = `${size}px "Lilita One", system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+  ctx.lineWidth = size * 0.22; ctx.strokeStyle = "rgba(0,0,0,.85)"; ctx.strokeText(text, x, y); ctx.fillStyle = fill; ctx.fillText(text, x, y);
+}
+
+/* ---------- main loop ---------- */
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // camera
+  const vr = videoRect();
+  if (cam.readyState >= 2) {
+    ctx.save();
+    if (mirrored()) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(cam, vr.ox, vr.oy, vr.dw, vr.dh);
+    ctx.restore();
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#5a3a20"); g.addColorStop(1, "#1d120a"); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+
+  // face tracking
+  if (landmarker && cam.readyState >= 2 && cam.currentTime !== lastVideoTime) {
+    lastVideoTime = cam.currentTime;
+    const res = landmarker.detectForVideo(cam, now);
+    const lm = res.faceLandmarks?.[0];
+    if (lm) {
+      const toX = (nx) => { const x = vr.ox + nx * vr.dw; return mirrored() ? W - x : x; };
+      const toY = (ny) => vr.oy + ny * vr.dh;
+      const fx = toX(lm[168].x), fy = toY(lm[6].y * 0.45 + lm[1].y * 0.55), fw = Math.abs(toX(lm[454].x) - toX(lm[234].x));
+      const target = { x: fx, y: fy, w: fw };
+      faceS = faceS ? { x: faceS.x + (target.x - faceS.x) * 0.45, y: faceS.y + (target.y - faceS.y) * 0.45, w: faceS.w + (target.w - faceS.w) * 0.3 } : target;
+      const bs = res.faceBlendshapes?.[0]?.categories;
+      jaw = bs ? (bs.find((c) => c.categoryName === "jawOpen")?.score ?? 0) : 0;
+      const open = jaw > 0.42, closed = jaw < 0.22;
+      if (mode === "mouth" && game.state === "play" && open && !mouthWasOpen) chop();
+      if (open) mouthWasOpen = true; else if (closed) mouthWasOpen = false;
+      if (game.state === "over" && mode === "mouth" && open && now - game.endAt > 1800) { resetGame(); mouthWasOpen = true; }
+    }
+  }
+
+  const playing = game.state === "play" || game.state === "over";
+  if (playing) {
+    // knife sweep gets faster with every piece
+    if (game.state === "play") {
+      const speed = 0.55 + game.pieces * 0.12;
+      game.knifeT += game.knifeDir * speed * dt;
+      if (game.knifeT > 1) { game.knifeT = 1; game.knifeDir = -1; }
+      if (game.knifeT < 0) { game.knifeT = 0; game.knifeDir = 1; }
+    }
+    const b = vegBox(), kx = knifeX();
+    const v = VEG[vegKey];
+
+    // dashed guide
+    ctx.save(); ctx.setLineDash([9, 8]); ctx.lineWidth = 2.5; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.shadowColor = "rgba(0,0,0,.4)"; ctx.shadowBlur = 3;
+    ctx.beginPath(); ctx.moveTo(kx, H * 0.17); ctx.lineTo(kx, KNIFE_Y()); ctx.stroke(); ctx.restore();
+
+    // remaining vegetable
+    if (game.L < 1) drawSegment(game.L, 1, b.x, b.y, b.len, b.h, game.L > 0, false);
+
+    // falling pieces
+    for (const p of game.falling) {
+      p.vy += 1500 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+      const cx = p.x + (p.a + p.b) / 2 * p.len, cy = p.y + p.h / 2;
+      ctx.save(); ctx.translate(cx, cy); ctx.rotate(p.rot); ctx.translate(-cx, -cy);
+      drawSegment(p.a, p.b, p.x, p.y, p.len, p.h, p.a > 0, p.b < 1);
+      ctx.restore();
+    }
+    game.falling = game.falling.filter((p) => p.y < H + 200);
+
+    // knife: jabs up to the vegetable on a chop
+    game.chopAnim = Math.max(0, game.chopAnim - dt * 4.5);
+    const jab = Math.sin(game.chopAnim * Math.PI);
+    const restY = KNIFE_Y(), hitY = b.y - b.h * 0.25;
+    const scale = Math.max(0.6, Math.min(1.1, W / 430));
+    drawKnife(kx, restY + (hitY - restY) * jab, scale);
+
+    // HUD drawn on canvas so it is in the recording
+    const s = Math.max(22, Math.min(34, W * 0.075));
+    pill(`${v.name} KE ${PIECES_TO_WIN}\nTUKDE KARO`, W / 2, H * 0.09 + 6, s);
+    outlined(`Tukde: ${game.pieces}/${PIECES_TO_WIN}`, W / 2, H * 0.09 + s * 2.2, s * 0.78);
+    if (game.flash > 0) { game.flash = Math.max(0, game.flash - dt * 3); outlined("KHACH!", kx, b.y - b.h * 0.9, s * (1 + game.flash * 0.4), `rgba(255,214,90,${game.flash})`); }
+    if (game.msg && game.state === "play") outlined(game.msg, W / 2, H * 0.93, 15);
+    if (game.state === "play" && mode === "mouth" && !faceS) outlined("Camera mein chehra dikhao", W / 2, H * 0.62, 18);
+
+    if (game.state === "over") {
+      const t = Math.min(1, (now - game.endAt) / 250), sc = 0.6 + 0.4 * (1 - Math.pow(1 - t, 3));
+      ctx.save(); ctx.translate(W / 2, H * 0.5); ctx.scale(sc, sc); ctx.translate(-W / 2, -H * 0.5);
+      pill(game.won ? "JEET GAYE!" : "CHOOK GAYE!", W / 2, H * 0.5, s * 1.4, game.won ? "#9df07a" : "#ff6a4d", "rgba(255,248,232,.85)");
+      ctx.restore();
+      outlined(game.won ? "Pradhan ji khush hue!" : "Arre Sachiv ji, yeh kya kiya!", W / 2, H * 0.5 + s * 1.75, s * 0.72, game.won ? "#fff3c4" : "#ffd9cf");
+      if (now - game.endAt > 700) outlined(mode === "mouth" ? "Phir se khelne ke liye muh kholo ya tap karo" : "Phir se khelne ke liye tap karo", W / 2, H * 0.5 + s * 2.9, 16);
+    }
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+/* ---------- recording ---------- */
+let rec = null, chunks = [], recStart = 0, recTimer = null, lastBlob = null, lastExt = "mp4";
+function pickType() {
+  const types = ["video/mp4;codecs=avc1,mp4a", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm"];
+  return types.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+}
+$("recBtn").onclick = (e) => {
+  e.stopPropagation();
+  if (rec && rec.state === "recording") { rec.stop(); return; }
+  const tracks = [...canvas.captureStream(30).getVideoTracks()];
+  if (recDest) tracks.push(...recDest.stream.getAudioTracks());
+  const type = pickType();
+  try { rec = new MediaRecorder(new MediaStream(tracks), type ? { mimeType: type, videoBitsPerSecond: 8_000_000 } : undefined); }
+  catch { return; }
+  lastExt = (rec.mimeType || type).includes("mp4") ? "mp4" : "webm";
+  chunks = []; rec.ondataavailable = (ev) => ev.data.size && chunks.push(ev.data);
+  rec.onstop = () => {
+    clearInterval(recTimer); $("timer").hidden = true; $("recBtn").classList.remove("on");
+    lastBlob = new Blob(chunks, { type: rec.mimeType || "video/mp4" });
+    $("preview").src = URL.createObjectURL(lastBlob); $("sheet").hidden = false; $("saveNote").textContent = "";
+    $("preview").play().catch(() => {});
+  };
+  rec.start(500); recStart = Date.now(); $("recBtn").classList.add("on"); $("timer").hidden = false;
+  recTimer = setInterval(() => { const s = Math.floor((Date.now() - recStart) / 1000); $("timer").textContent = `● ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }, 250);
+};
+$("saveBtn").onclick = async () => {
+  if (!lastBlob) return;
+  const file = new File([lastBlob], `panchayat-lauki-${Date.now()}.${lastExt}`, { type: lastBlob.type });
+  if (navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); return; } catch (err) { if (err.name === "AbortError") return; }
+  }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = file.name; a.click();
+  $("saveNote").textContent = "Downloads mein save ho gaya.";
+};
+$("closeBtn").onclick = () => { $("sheet").hidden = true; $("preview").pause(); resetGame(); };
+</script>
+</body>
+</html>
