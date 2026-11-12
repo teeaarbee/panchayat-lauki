@@ -291,14 +291,16 @@ function videoRect() { // cover-fit the camera into the canvas
 }
 const mirrored = () => facing === "user";
 
+// The lauki hangs just under the chin so the actor's face stays clear; f.y is the chin, f.fh the face height.
 function vegBox() {
-  const f = faceS || { x: W / 2, y: H * 0.45, w: W * 0.45 };
+  const f = faceS || { x: W / 2, y: H * 0.5, w: W * 0.45, fh: W * 0.55 };
   const len = Math.min(W * 0.82, Math.max(W * 0.55, f.w * 1.9));
   const v = VEG[vegKey], h = len * v.aspect;
   const x = Math.min(W * 0.97 - len, Math.max(W * 0.03, f.x - len / 2)); // keep the whole vegetable on screen
-  return { x, y: f.y - h / 2, len, h };
+  const y = Math.min(H * 0.8 - h, f.y + f.fh * 0.08); // never pushed off the bottom
+  return { x, y, len, h };
 }
-const KNIFE_Y = () => H * 0.72;
+const KNIFE_Y = (b) => Math.min(H * 0.86, Math.max(H * 0.72, b.y + b.h + H * 0.07)); // always below the lauki
 const knifeX = () => W * (0.06 + 0.88 * game.knifeT);
 
 /* ---------- the chop ---------- */
@@ -403,9 +405,10 @@ function frame(now) {
     if (lm) {
       const toX = (nx) => { const x = vr.ox + nx * vr.dw; return mirrored() ? W - x : x; };
       const toY = (ny) => vr.oy + ny * vr.dh;
-      const fx = toX(lm[168].x), fy = toY(lm[6].y * 0.45 + lm[1].y * 0.55), fw = Math.abs(toX(lm[454].x) - toX(lm[234].x));
-      const target = { x: fx, y: fy, w: fw };
-      faceS = faceS ? { x: faceS.x + (target.x - faceS.x) * 0.45, y: faceS.y + (target.y - faceS.y) * 0.45, w: faceS.w + (target.w - faceS.w) * 0.3 } : target;
+      const chin = toY(lm[152].y), fh = Math.abs(chin - toY(lm[10].y)); // 152 chin, 10 top of forehead
+      const target = { x: toX((lm[168].x + lm[152].x) / 2), y: chin, w: Math.abs(toX(lm[454].x) - toX(lm[234].x)), fh };
+      const k = (a, b, t) => a + (b - a) * t;
+      faceS = faceS ? { x: k(faceS.x, target.x, 0.45), y: k(faceS.y, target.y, 0.45), w: k(faceS.w, target.w, 0.3), fh: k(faceS.fh, target.fh, 0.3) } : target;
       const bs = res.faceBlendshapes?.[0]?.categories;
       jaw = bs ? (bs.find((c) => c.categoryName === "jawOpen")?.score ?? 0) : 0;
       const open = jaw > 0.42, closed = jaw < 0.22;
@@ -429,7 +432,7 @@ function frame(now) {
 
     // dashed guide
     ctx.save(); ctx.setLineDash([9, 8]); ctx.lineWidth = 2.5; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.shadowColor = "rgba(0,0,0,.4)"; ctx.shadowBlur = 3;
-    ctx.beginPath(); ctx.moveTo(kx, H * 0.17); ctx.lineTo(kx, KNIFE_Y()); ctx.stroke(); ctx.restore();
+    ctx.beginPath(); ctx.moveTo(kx, Math.max(H * 0.17, b.y - b.h * 0.6)); ctx.lineTo(kx, KNIFE_Y(b)); ctx.stroke(); ctx.restore(); // starts just above the lauki, not across the face
 
     // remaining vegetable
     if (game.L < 1) drawSegment(game.L, 1, b.x, b.y, b.len, b.h, game.L > 0, false);
@@ -447,7 +450,7 @@ function frame(now) {
     // knife: jabs up to the vegetable on a chop
     game.chopAnim = Math.max(0, game.chopAnim - dt * 4.5);
     const jab = Math.sin(game.chopAnim * Math.PI);
-    const restY = KNIFE_Y(), hitY = b.y - b.h * 0.25;
+    const restY = KNIFE_Y(b), hitY = b.y - b.h * 0.25;
     const scale = Math.max(0.6, Math.min(1.1, W / 430));
     drawKnife(kx, restY + (hitY - restY) * jab, scale);
 
@@ -455,17 +458,20 @@ function frame(now) {
     const s = Math.max(22, Math.min(34, W * 0.075));
     pill(`${v.name} KE ${PIECES_TO_WIN}\nTUKDE KARO`, W / 2, H * 0.09 + 6, s);
     outlined(`Tukde: ${game.pieces}/${PIECES_TO_WIN}`, W / 2, H * 0.09 + s * 2.45, s * 0.78);
-    if (game.flash > 0) { game.flash = Math.max(0, game.flash - dt * 3); outlined("KHACH!", kx, b.y - b.h * 0.9, s * (1 + game.flash * 0.4), `rgba(255,214,90,${game.flash})`); }
+    if (game.flash > 0) { game.flash = Math.max(0, game.flash - dt * 3); outlined("KHACH!", kx, b.y + b.h * 1.6, s * (1 + game.flash * 0.4), `rgba(255,214,90,${game.flash})`); }
     if (game.msg && game.state === "play") outlined(game.msg, W / 2, H * 0.93, 15);
     if (game.state === "play" && mode === "mouth" && !faceS) outlined("Camera mein chehra dikhao", W / 2, H * 0.62, 18);
+    // face too close: no room under the chin, so the lauki is pushed up over the face
+    if (game.state === "play" && faceS && faceS.y + faceS.fh * 0.08 > b.y + 2) outlined("Thoda peeche ho jao", W / 2, H * 0.09 + s * 3.4, s * 0.62, "#fff3c4");
 
     if (game.state === "over") {
+      const RY = H * 0.64; // lower third, clear of the face
       const t = Math.min(1, (now - game.endAt) / 250), sc = 0.6 + 0.4 * (1 - Math.pow(1 - t, 3));
-      ctx.save(); ctx.translate(W / 2, H * 0.5); ctx.scale(sc, sc); ctx.translate(-W / 2, -H * 0.5);
-      pill(game.won ? "JEET GAYE!" : "CHOOK GAYE!", W / 2, H * 0.5, s * 1.4, game.won ? "#9df07a" : "#ff6a4d", "rgba(255,248,232,.85)");
+      ctx.save(); ctx.translate(W / 2, RY); ctx.scale(sc, sc); ctx.translate(-W / 2, -RY);
+      pill(game.won ? "JEET GAYE!" : "CHOOK GAYE!", W / 2, RY, s * 1.4, game.won ? "#9df07a" : "#ff6a4d", "rgba(255,248,232,.85)");
       ctx.restore();
-      outlined(game.won ? "Pradhan ji khush hue!" : "Arre Sachiv ji, yeh kya kiya!", W / 2, H * 0.5 + s * 2.1, s * 0.72, game.won ? "#fff3c4" : "#ffd9cf");
-      if (now - game.endAt > 700) outlined(mode === "mouth" ? "Phir se khelne ke liye muh kholo ya tap karo" : "Phir se khelne ke liye tap karo", W / 2, H * 0.5 + s * 3.0, 16);
+      outlined(game.won ? "Pradhan ji khush hue!" : "Arre Sachiv ji, yeh kya kiya!", W / 2, RY + s * 2.1, s * 0.72, game.won ? "#fff3c4" : "#ffd9cf");
+      if (now - game.endAt > 700) outlined(mode === "mouth" ? "Phir se khelne ke liye muh kholo ya tap karo" : "Phir se khelne ke liye tap karo", W / 2, RY + s * 3.0, 16);
     }
   }
   requestAnimationFrame(frame);
