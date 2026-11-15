@@ -18,7 +18,7 @@
 1. Camera on karo. Lauki seedha aapke chehre pe, naak ke level pe aa jaayegi, aur aapke saath hilegi.
 2. Neeche chaaku left-right chalta rahega, upar dotted line ke saath.
 3. **Muh kholo** (ya screen pe **tap** karo) toh chaaku lauki pe girega aur ek tukda kat ke gir jaayega.
-4. **5 tukde** kaat liye toh *AB HOGA BANRAKAS RAJ!*
+4. **5 tukde** kaat liye toh *HUM JEET GAYE!*
 5. Chaaku lauki ke bahar gira toh *CHII SASUR!* Ek galti aur khel khatam.
 6. Har tukde ke baad chaaku thoda tez ho jaata hai. Sar hila ke lauki ko chaaku ke neeche laao.
 
