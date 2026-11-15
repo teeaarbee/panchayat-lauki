@@ -415,10 +415,13 @@ function drawKnife(x, yTip, scale) {
   ctx.restore();
 }
 
-function pill(text, cx, cy, size, fill = "#ffcf5a", bg = "rgba(255,248,232,.78)") {
+function pill(text, cx, cy, size, fill = "#ffcf5a", bg = "rgba(255,248,232,.78)", maxW = Infinity) {
   ctx.font = `${size}px "Lilita One", system-ui`;
   if ("wordSpacing" in ctx) ctx.wordSpacing = `${size * 0.12}px`;
-  const lines = text.split("\n"), lw = Math.max(...lines.map((l) => ctx.measureText(l).width)), lh = size * 1.1;
+  const widest = () => Math.max(...text.split("\n").map((l) => ctx.measureText(l).width));
+  const fit = Math.min(1, maxW / (widest() + size * 1.4)); // shrink long lines to stay inside the safe zone
+  if (fit < 1) { size *= fit; ctx.font = `${size}px "Lilita One", system-ui`; if ("wordSpacing" in ctx) ctx.wordSpacing = `${size * 0.12}px`; }
+  const lines = text.split("\n"), lw = widest(), lh = size * 1.1;
   const bw = lw + size * 1.4, bh = lh * lines.length + size * 0.8;
   ctx.fillStyle = bg; ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.lineWidth = size * 0.12;
   ctx.beginPath(); ctx.roundRect(cx - bw / 2, cy - bh / 2, bw, bh, size * 0.7); ctx.fill(); ctx.stroke();
@@ -530,9 +533,10 @@ function frame(now) {
     if (game.state === "over") {
       const t = Math.min(1, (now - game.endAt) / 250), sc = 0.6 + 0.4 * (1 - Math.pow(1 - t, 3));
       ctx.save(); ctx.translate(RESULT_X, RESULT_Y); ctx.scale(sc, sc); ctx.translate(-RESULT_X, -RESULT_Y);
-      pill(game.won ? "JEET GAYE!" : "CHOOK GAYE!", RESULT_X, RESULT_Y, s * 1.4, game.won ? "#9df07a" : "#ff6a4d", "rgba(255,248,232,.85)");
+      const { bh } = pill(game.won ? "AB HOGA\nBANRAKAS RAJ!" : "CHII SASUR!", RESULT_X, RESULT_Y, s * 1.4,
+        game.won ? "#9df07a" : "#ff6a4d", "rgba(255,248,232,.85)", SAFE.rail - SAFE.left - 8);
       ctx.restore();
-      outlined(game.won ? "Pradhan ji khush hue!" : "Arre Sachiv ji, yeh kya kiya!", RESULT_X, RESULT_Y + s * 2.1, s * 0.72, game.won ? "#fff3c4" : "#ffd9cf");
+      outlined(game.won ? "Jeet gaye!" : "Chook gaye!", RESULT_X, RESULT_Y + bh / 2 + s * 0.7, s * 0.72, game.won ? "#fff3c4" : "#ffd9cf");
     }
 
     if (game.state === "over") setHint(now - game.endAt > 700 ? (mode === "mouth" ? "Phir se khelne ke liye muh kholo ya tap karo" : "Phir se khelne ke liye tap karo") : "");
