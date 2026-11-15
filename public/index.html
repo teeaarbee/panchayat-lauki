@@ -226,6 +226,7 @@ function initAudio(rate) {
   sfxOut = actx.createGain(); sfxOut.gain.value = 0.8;
   sfxOut.connect(actx.destination); sfxOut.connect(recDest);
   connectMic();
+  Object.keys(voiceBytes).forEach(decodeVoice); // decode now so the line plays without a delay
 }
 function rebuildAudioForMic() {
   const rate = micStream?.getAudioTracks()[0]?.getSettings?.().sampleRate;
@@ -255,6 +256,24 @@ function tone(freqs, step, type = "triangle", vol = 0.25) {
 const sfxChop = () => { noiseBurst(0.12, 2600, 1.2, 1.4); noiseBurst(0.08, 400, 2, 1.0); };
 const sfxWin = () => tone([523, 659, 784, 1047], 0.11);
 const sfxLose = () => tone([392, 330, 262, 196], 0.14, "sawtooth", 0.12);
+
+// Show lines for the result screens, cut from the episodes (dialogue channel only). They play through sfxOut,
+// so they are in the recording too. A clip that is missing or fails to decode falls back to the tone.
+const VOICE = { lose: "sfx/chii-sasur.m4a", win: "sfx/banrakas-raj.m4a" };
+const voiceBytes = {}, voiceBufs = { ctx: null, bufs: {} }; // decoded audio belongs to one AudioContext
+for (const [k, url] of Object.entries(VOICE)) {
+  fetch(url).then((r) => (r.ok ? r.arrayBuffer() : null)).then((b) => { if (b) { voiceBytes[k] = b; decodeVoice(k); } }).catch(() => {});
+}
+function decodeVoice(k) {
+  if (!actx || !voiceBytes[k]) return null;
+  if (voiceBufs.ctx !== actx) voiceBufs.ctx = actx, voiceBufs.bufs = {};
+  return (voiceBufs.bufs[k] ??= actx.decodeAudioData(voiceBytes[k].slice(0)));
+}
+function playVoice(k, fallback) {
+  const p = decodeVoice(k);
+  if (!p) return fallback();
+  p.then((buf) => { const src = actx.createBufferSource(); src.buffer = buf; src.connect(sfxOut); src.start(); }).catch(fallback);
+}
 
 /* ---------- camera + face model ---------- */
 async function startCamera() {
@@ -372,10 +391,10 @@ function chop() {
   if (f > game.L + 0.01 && f < 0.995) {
     game.falling.push({ a: game.L, b: f, x: b.x, y: b.y, len: b.len, h: b.h, vx: -(60 + Math.random() * 80), vy: -260, rot: 0, vr: -(2 + Math.random() * 2) });
     game.L = f; game.pieces++; game.flash = 1;
-    if (game.pieces >= PIECES_TO_WIN) { game.state = "over"; game.won = true; game.endAt = now; setTimeout(sfxWin, 150); }
+    if (game.pieces >= PIECES_TO_WIN) { game.state = "over"; game.won = true; game.endAt = now; setTimeout(() => playVoice("win", sfxWin), 150); }
   } else {
     game.falling.push({ a: game.L, b: 1, x: b.x, y: b.y, len: b.len, h: b.h, vx: 0, vy: -120, rot: 0, vr: 1.2 });
-    game.L = 1; game.state = "over"; game.won = false; game.endAt = now; setTimeout(sfxLose, 120);
+    game.L = 1; game.state = "over"; game.won = false; game.endAt = now; setTimeout(() => playVoice("lose", sfxLose), 120);
   }
 }
 

@@ -35,6 +35,7 @@ Kuch bhi upload nahi hota, sab phone pe hi banta hai.
 - Lauki, chaaku aur tukde sab `<canvas>` pe code se bante hain, koi image nahi.
 - Recording `MediaRecorder` se: iPhone pe MP4, baaki jagah MP4 ya WebM.
 - Hosting: Cloudflare Workers (static assets), domain `panchayat-lauki.teeaarbee.com`.
+- Jeet aur haar par show ki awaaz bajti hai (`public/sfx/`). Woh clips show ke hain, isliye is repo mein nahi rakhe; bina unke game purani tone bajata hai.
 
 ## Apne computer pe chalao
 
